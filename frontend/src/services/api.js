@@ -1,6 +1,12 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 
-const API = axios.create({ baseURL: '/api' });
+// In production: point directly to backend (Vercel proxy doesn't handle POST/WebSocket well)
+// In development: use /api (Vite proxy handles it)
+const BASE = import.meta.env.VITE_BACKEND_URL
+  ? `${import.meta.env.VITE_BACKEND_URL}/api`
+  : '/api';
+
+const API = axios.create({ baseURL: BASE });
 
 // Auto-attach token
 API.interceptors.request.use((config) => {

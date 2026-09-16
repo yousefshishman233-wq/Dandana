@@ -1,12 +1,27 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
+
+// Support writable DB in Serverless environments (like Vercel /tmp)
+let dbPath = path.join(__dirname, '..', 'denden.db');
+if (process.env.VERCEL) {
+  const tmpDb = path.join('/tmp', 'denden.db');
+  try {
+    if (!fs.existsSync(tmpDb) && fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, tmpDb);
+    }
+    dbPath = tmpDb;
+  } catch (e) {
+    console.warn('Error copying DB to /tmp:', e);
+  }
+}
 
 // Create database connection
-const db = new sqlite3.Database(path.join(__dirname, '..', 'denden.db'), sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
+const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, (err) => {
   if (err) {
     console.error('Database connection error:', err.message);
   } else {
-    console.log('Connected to SQLite database');
+    console.log('Connected to SQLite database at', dbPath);
   }
 });
 

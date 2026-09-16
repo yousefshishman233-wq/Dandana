@@ -233,7 +233,15 @@ const ChatPage = () => {
   };
 
   const connectSocket = () => {
-    const socket = io('/', { transports: ['websocket', 'polling'] });
+    // In production: connect directly to backend (Vercel proxy can't handle WebSocket upgrades)
+    // In development: connect to '/' (Vite dev server proxies it)
+    const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || '/';
+    const socket = io(SOCKET_URL, {
+      transports: ['polling', 'websocket'],  // polling first (works on serverless), then upgrade if possible
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {
