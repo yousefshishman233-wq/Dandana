@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const path = require('path');
 const socketIo = require('socket.io');
 const bcrypt = require('bcryptjs');
 const dotenv = require('dotenv');
@@ -156,6 +157,17 @@ app.get('/api/health', (req, res) => {
     message: 'دندنه server is running',
     timestamp: new Date().toISOString()
   });
+});
+
+// Serve frontend static build if dist exists
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// SPA fallback for React Router
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // Error handling middleware
