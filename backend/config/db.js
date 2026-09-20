@@ -24,6 +24,11 @@ const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CR
     console.log('Connected to SQLite database at', dbPath);
   }
 });
+db.configure('busyTimeout', 5000);
+db.serialize(() => {
+  db.run('PRAGMA foreign_keys = ON');
+  db.run('PRAGMA journal_mode = WAL');
+});
 
 const BRANCHES = [
   'شارع السنترال',
@@ -317,6 +322,11 @@ const initializeDB = () => {
       is_read    INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    db.run('CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_advances_user_date ON advances(user_id, date)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)');
 
     console.log('Database tables initialized successfully');
   });

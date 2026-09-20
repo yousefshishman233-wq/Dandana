@@ -177,10 +177,26 @@ const ChatPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  const mergeMessages = useCallback((incoming) => {
+    if (!Array.isArray(incoming) || incoming.length === 0) return;
+    setMessages(prev => {
+      const byId = new Map(prev.map(message => [message.id, message]));
+      incoming.forEach(message => {
+        if (message?.id != null) byId.set(message.id, message);
+      });
+      const next = Array.from(byId.values()).sort((a, b) =>
+        String(a.created_at || '').localeCompare(String(b.created_at || ''))
+      );
+      chatStore.setItem('all_messages', next).catch(console.error);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     fetchMessages();
     fetchUsers();
     connectSocket();
+    const refreshTimer = setInterval(fetchMessages, 5000);
 
     // Request Web Push Notification permission
     if ('Notification' in window && Notification.permission === 'default') {
@@ -189,6 +205,7 @@ const ChatPage = () => {
 
     return () => {
       socketRef.current?.disconnect();
+      clearInterval(refreshTimer);
       if (recordTimerRef.current) clearInterval(recordTimerRef.current);
     };
   }, []);
@@ -222,9 +239,7 @@ const ChatPage = () => {
     try {
       const res = await chatAPI.getMessages();
       if (res.data.success && Array.isArray(res.data.messages)) {
-        setMessages(res.data.messages);
-        // Persist on device storage so next time it loads instantly without network
-        chatStore.setItem('all_messages', res.data.messages).catch(console.error);
+        mergeMessages(res.data.messages);
       }
     } catch (e) {
       console.error('Fetch messages network error:', e);
@@ -237,6 +252,9 @@ const ChatPage = () => {
     // In development: connect to '/' (Vite dev server proxies it)
     const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || '/';
     const socket = io(SOCKET_URL, {
+      auth: {
+        token: localStorage.getItem('dandana_token')
+      },
       transports: ['polling', 'websocket'],  // polling first (works on serverless), then upgrade if possible
       reconnection: true,
       reconnectionAttempts: 5,
@@ -250,13 +268,13 @@ const ChatPage = () => {
     });
 
     socket.on('disconnect', () => setConnected(false));
+    socket.on('connect_error', (err) => {
+      console.error('Chat connection error:', err.message);
+      setConnected(false);
+    });
 
     socket.on('newMessage', (msg) => {
-      setMessages(prev => {
-        const next = [...prev, msg];
-        chatStore.setItem('all_messages', next).catch(console.error);
-        return next;
-      });
+      mergeMessages([msg]);
 
       // Play chime & show notification if message is from someone else
       if (msg.sender_id !== user?.id && msg.user_id !== user?.id) {
@@ -395,38 +413,34 @@ const ChatPage = () => {
   };
 
   const sendMediaMessage = async (mediaUrl, mediaType, defaultText) => {
-    const msg = {
-      sender_id: user.id,
-      message: newMsg.trim() || defaultText,
-      full_name: user.full_name,
-      role: user.role,
-      type: msgType,
-      media_url: mediaUrl,
-      media_type: mediaType,
-      created_at: new Date().toISOString(),
-    };
-    socketRef.current?.emit('sendMessage', msg);
-    setNewMsg('');
-    setMsgType('text');
+    try {
+      const response = await chatAPI.sendMessage(newMsg.trim() || defaultText, mediaUrl, mediaType);
+      if (response.data.success) {
+        mergeMessages([response.data.data]);
+        setNewMsg('');
+        setMsgType('text');
+      }
+    } catch (err) {
+      console.error('Send media message error:', err);
+      alert(err.response?.data?.message || 'تعذر إرسال الرسالة');
+    }
   };
 
   const handleSend = async (e) => {
     e?.preventDefault();
     if (!newMsg.trim()) return;
-    const msg = {
-      sender_id: user.id,
-      message: newMsg.trim(),
-      full_name: user.full_name,
-      role: user.role,
-      type: msgType,
-      media_url: null,
-      media_type: 'text',
-      created_at: new Date().toISOString(),
-    };
-    socketRef.current?.emit('sendMessage', msg);
-    setNewMsg('');
-    setMsgType('text');
-    setShowMentionBox(false);
+    try {
+      const response = await chatAPI.sendMessage(newMsg.trim(), null, 'text');
+      if (response.data.success) {
+        mergeMessages([response.data.data]);
+        setNewMsg('');
+        setMsgType('text');
+        setShowMentionBox(false);
+      }
+    } catch (err) {
+      console.error('Send message error:', err);
+      alert(err.response?.data?.message || 'تعذر إرسال الرسالة');
+    }
   };
 
   const handleInputChange = (e) => {

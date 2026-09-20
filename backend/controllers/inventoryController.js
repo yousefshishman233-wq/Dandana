@@ -104,6 +104,14 @@ exports.createOrder = (req, res) => {
   const { items, discount = 0 } = req.body;
   const cashierId = req.user.id;
 
+  if (!Array.isArray(items) || items.length === 0 || !Number.isFinite(Number(discount)) || Number(discount) < 0) {
+    return res.status(400).json({ success: false, message: 'بيانات الطلب غير صالحة' });
+  }
+  if (items.some(item => !item || !Number.isInteger(Number(item.product_id)) ||
+      !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
+    return res.status(400).json({ success: false, message: 'يجب أن تكون الأصناف وكمياتها صالحة' });
+  }
+  const normalizedDiscount = Number(discount);
   const productIds = items.map(item => item.product_id);
   const placeholders = productIds.map(() => '?').join(',');
 
@@ -112,6 +120,10 @@ exports.createOrder = (req, res) => {
     productIds,
     (err, products) => {
       if (err) return res.status(500).json({ success: false, message: 'Database error' });
+
+      if (products.length !== new Set(productIds.map(Number)).size) {
+        return res.status(400).json({ success: false, message: 'أحد المنتجات غير موجود' });
+      }
 
       let totalAmount = 0;
       items.forEach(item => {
@@ -122,11 +134,11 @@ exports.createOrder = (req, res) => {
       });
 
       totalAmount = totalAmount * 0.75;
-      const finalTotal = totalAmount - discount;
+      const finalTotal = totalAmount - normalizedDiscount;
 
       db.run(
         'INSERT INTO orders (cashier_id, total_amount, discount) VALUES (?, ?, ?)',
-        [cashierId, finalTotal, discount],
+        [cashierId, finalTotal, normalizedDiscount],
         function(err) {
           if (err) return res.status(500).json({ success: false, message: 'Failed to create order' });
           const orderId = this.lastID;
@@ -148,7 +160,7 @@ exports.createOrder = (req, res) => {
           res.status(201).json({
             success: true,
             message: 'Order created successfully',
-            order: { id: orderId, cashier_id: cashierId, total_amount: finalTotal, discount }
+            order: { id: orderId, cashier_id: cashierId, total_amount: finalTotal, discount: normalizedDiscount }
           });
         }
       );

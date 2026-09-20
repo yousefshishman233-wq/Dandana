@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { db } = require('../config/db');
+const { getJwtSecret } = require('../middleware/auth');
 
 // Generate JWT token
 const generateToken = (user) => {
@@ -13,7 +14,7 @@ const generateToken = (user) => {
       branch_id: user.branch_id || null,
       can_manage_leaves: user.can_manage_leaves ? 1 : 0
     },
-    process.env.JWT_SECRET || 'denden_secret_key_2024',
+    getJwtSecret(),
     { expiresIn: '8h' }
   );
 };
@@ -95,6 +96,10 @@ exports.login = async (req, res) => {
   let { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, message: 'يرجى إدخال اسم المستخدم وكلمة المرور' });
+  }
+  if (!getJwtSecret()) {
+    console.error('JWT_SECRET is not configured');
+    return res.status(500).json({ success: false, message: 'Authentication is not configured' });
   }
 
   username = username.trim();
@@ -407,7 +412,8 @@ exports.getAttendance = (req, res) => {
 // @desc    Clock in or Send Attendance Request for today with active branch & late detection
 // @access  Private
 exports.clockIn = (req, res) => {
-  const userId = req.body.user_id || req.user.id;
+  const userId = ['manager', 'cashier'].includes(req.user.role) && req.body.user_id
+    ? Number(req.body.user_id) : req.user.id;
   const branchId = req.body.branch_id || req.user.branch_id || null;
   const today = new Date().toISOString().split('T')[0];
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' });
@@ -551,7 +557,8 @@ exports.updateAttendanceStatus = (req, res) => {
 // @desc    Clock out for today
 // @access  Private
 exports.clockOut = (req, res) => {
-  const userId = req.body.user_id || req.user.id;
+  const userId = ['manager', 'cashier'].includes(req.user.role) && req.body.user_id
+    ? Number(req.body.user_id) : req.user.id;
   const today = new Date().toISOString().split('T')[0];
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' });
 
@@ -580,7 +587,8 @@ exports.clockOut = (req, res) => {
 // @desc    Shift Transfer / التطبيق (Clock out from old branch & Clock in to new branch)
 // @access  Private
 exports.shiftTransfer = (req, res) => {
-  const userId = req.body.user_id || req.user.id;
+  const userId = ['manager', 'cashier'].includes(req.user.role) && req.body.user_id
+    ? Number(req.body.user_id) : req.user.id;
   const newBranchId = req.body.new_branch_id;
 
   if (!newBranchId) {
@@ -785,7 +793,11 @@ exports.getNotifications = (req, res) => {
 // @access  Private
 exports.markNotificationRead = (req, res) => {
   const { id } = req.params;
-  db.run('UPDATE notifications SET is_read = 1 WHERE id = ?', [id], function(err) {
+  const query = req.user.role === 'manager'
+    ? 'UPDATE notifications SET is_read = 1 WHERE id = ?'
+    : 'UPDATE notifications SET is_read = 1 WHERE id = ? AND (user_id = ? OR user_id IS NULL)';
+  const params = req.user.role === 'manager' ? [id] : [id, req.user.id];
+  db.run(query, params, function(err) {
     if (err) return res.status(500).json({ success: false, message: 'Database error' });
     res.json({ success: true, message: 'تم تحديث الإشعار' });
   });

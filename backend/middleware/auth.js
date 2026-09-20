@@ -1,5 +1,11 @@
 const jwt = require('jsonwebtoken');
 
+const getJwtSecret = () => {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production') return null;
+  return 'denden_secret_key_2024';
+};
+
 // Authentication middleware
 const auth = (req, res, next) => {
   try {
@@ -15,7 +21,12 @@ const auth = (req, res, next) => {
 
     try {
       // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'denden_secret_key_2024');
+      const secret = getJwtSecret();
+      if (!secret) {
+        console.error('JWT_SECRET is not configured');
+        return res.status(500).json({ success: false, message: 'Authentication is not configured' });
+      }
+      const decoded = jwt.verify(token, secret);
       req.user = decoded;
       next();
     } catch (err) {
@@ -54,4 +65,4 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { auth, authorize };
+module.exports = { auth, authorize, getJwtSecret };

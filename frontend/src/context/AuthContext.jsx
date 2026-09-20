@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import { authAPI } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -16,7 +16,6 @@ export const AuthProvider = ({ children }) => {
         const parsedUser = JSON.parse(storedUser);
         setUser(parsedUser);
         setIsAuthenticated(true);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       } catch (e) {
         localStorage.removeItem('dandana_token');
         localStorage.removeItem('dandana_user');
@@ -27,12 +26,11 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      const response = await axios.post('/api/auth/login', { username, password });
+      const response = await authAPI.login(username, password);
       if (response.data.success) {
         const { token, user: userData } = response.data;
         localStorage.setItem('dandana_token', token);
         localStorage.setItem('dandana_user', JSON.stringify(userData));
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         setUser(userData);
         setIsAuthenticated(true);
         return { success: true };
@@ -49,7 +47,6 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('dandana_token');
     localStorage.removeItem('dandana_user');
-    delete axios.defaults.headers.common['Authorization'];
     setUser(null);
     setIsAuthenticated(false);
   };

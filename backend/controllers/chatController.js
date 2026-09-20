@@ -34,6 +34,13 @@ exports.sendMessage = (req, res) => {
   const finalType = media_type || 'text';
   const finalMessage = message || '';
 
+  if (!finalMessage.trim() && !media_url) {
+    return res.status(400).json({
+      success: false,
+      message: 'لا يمكن إرسال رسالة فارغة'
+    });
+  }
+
   db.run(
     'INSERT INTO messages (sender_id, message, media_url, media_type) VALUES (?, ?, ?, ?)',
     [senderId, finalMessage, media_url || null, finalType],
@@ -60,7 +67,7 @@ exports.sendMessage = (req, res) => {
 
           // Emit via socket.io
           if (req.app.get('io')) {
-            req.app.get('io').emit('newMessage', fullMessage);
+            req.app.get('io').to('global_chat').emit('newMessage', fullMessage);
           }
 
           res.status(201).json({

@@ -24,6 +24,10 @@ exports.getAdvances = (req, res) => {
   const conditions = [];
 
   if (userId) {
+    if (req.user.role !== 'manager' && req.user.role !== 'cashier' &&
+        Number(userId) !== Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: 'غير مصرح بعرض سلف مستخدم آخر' });
+    }
     conditions.push(`a.user_id = ?`);
     params.push(userId);
   }
@@ -44,6 +48,12 @@ exports.getAdvances = (req, res) => {
   if (isCashier && !userId && req.user.branch_id && !branchId) {
     conditions.push(`(u.branch_id = ? OR u.branch_id IS NULL)`);
     params.push(req.user.branch_id);
+  } else if (isCashier && userId && req.user.branch_id) {
+    conditions.push('(u.branch_id = ? OR a.user_id = ?)');
+    params.push(req.user.branch_id, req.user.id);
+  } else if (!isManager && !isCashier) {
+    conditions.push('a.user_id = ?');
+    params.push(req.user.id);
   }
 
   if (conditions.length > 0) {
@@ -126,7 +136,7 @@ exports.updateAdvanceStatus = (req, res) => {
   const isManagerOrCashier = ['manager', 'cashier'].includes(req.user.role);
 
   if (!isManagerOrCashier) {
-    return res.status(430).json({ success: false, message: 'غير مصرح للكاشير والمدير فقط بالموافقة أو الرفض' });
+    return res.status(403).json({ success: false, message: 'غير مصرح للكاشير والمدير فقط بالموافقة أو الرفض' });
   }
 
   if (!['approved', 'rejected'].includes(status)) {
@@ -164,6 +174,9 @@ exports.updateAdvanceStatus = (req, res) => {
 // @access  Private
 exports.getAdvancesByUser = (req, res) => {
   const { userId } = req.params;
+  if (req.user.role !== 'manager' && Number(userId) !== Number(req.user.id)) {
+    return res.status(403).json({ success: false, message: 'غير مصرح بعرض سلف مستخدم آخر' });
+  }
   const { month, status } = req.query;
 
   let query = `
@@ -228,6 +241,9 @@ exports.paybackAdvance = (req, res) => {
 // @access  Private
 exports.getSalaryCalculation = (req, res) => {
   const { userId } = req.params;
+  if (req.user.role !== 'manager' && Number(userId) !== Number(req.user.id)) {
+    return res.status(403).json({ success: false, message: 'غير مصرح بعرض راتب مستخدم آخر' });
+  }
   const { monthYear } = req.query;
 
   const now = new Date();
@@ -419,6 +435,9 @@ exports.addIceCreamOrder = (req, res) => {
 // @access  Private
 exports.getIceCreamOrders = (req, res) => {
   const { userId } = req.params;
+  if (req.user.role !== 'manager' && Number(userId) !== Number(req.user.id)) {
+    return res.status(403).json({ success: false, message: 'غير مصرح بعرض طلبات مستخدم آخر' });
+  }
   const { month } = req.query;
 
   let query = `

@@ -4,8 +4,10 @@ const http = require('http');
 const path = require('path');
 const socketIo = require('socket.io');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const dotenv = require('dotenv');
 const { db, initializeDB } = require('./config/db');
+const { getJwtSecret } = require('./middleware/auth');
 
 // Load environment variables
 dotenv.config();
@@ -32,6 +34,21 @@ const io = socketIo(server, {
   }
 });
 
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  const secret = getJwtSecret();
+  if (!token || !secret) {
+    return next(new Error('Authentication required'));
+  }
+
+  try {
+    socket.user = jwt.verify(token, secret);
+    return next();
+  } catch {
+    return next(new Error('Invalid authentication token'));
+  }
+});
+
 // Store io instance in app for use in controllers
 app.set('io', io);
 
@@ -43,41 +60,14 @@ io.on('connection', (socket) => {
     socket.join('global_chat');
   });
 
-  // Handle new message
-  socket.on('sendMessage', (messageData) => {
-    // Save to database
-    const { sender_id, message, media_url, media_type, type } = messageData;
-    const finalMediaType = media_type || 'text';
-    const finalType = type || 'text';
-    const finalMessage = message || (finalMediaType === 'audio' ? '🎤 رسالة صوتية' : '');
-    const created_at = new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-    db.run(
-      'INSERT INTO messages (sender_id, message, media_url, media_type, type) VALUES (?, ?, ?, ?, ?)',
-      [sender_id, finalMessage, media_url || null, finalMediaType, finalType],
-      function(err) {
-        if (err) {
-          console.error('Error saving socket message:', err);
-        }
-
-        const msgId = this ? this.lastID : null;
-
-        // Broadcast to all connected clients
-        io.emit('newMessage', {
-          id: msgId,
-          sender_id,
-          message: finalMessage,
-          media_url: media_url || null,
-          media_type: finalMediaType,
-          type: finalType,
-          created_at,
-          full_name: messageData.full_name,
-          role: messageData.role
-        });
-      }
-    );
+  socket.on('typing', (typingData = {}) => {
+    socket.to('global_chat').emit('typing', {
+      name: socket.user.full_name || typingData.name || 'مستخدم',
+      id: socket.user.id
+    });
   });
 
+  // Handle new message
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
   });
@@ -85,8 +75,12 @@ io.on('connection', (socket) => {
 
 // Seed default manager account
 const seedDefaultManager = () => {
+  if (process.env.NODE_ENV === 'production' && !process.env.DEFAULT_ADMIN_PASSWORD) {
+    console.warn('Skipping default manager seed in production; set DEFAULT_ADMIN_PASSWORD to provision one explicitly.');
+    return;
+  }
   const defaultUsername = 'admin';
-  const defaultPassword = 'admin123';
+  const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin123';
 
   db.get('SELECT id FROM users WHERE username = ?', [defaultUsername], async (err, user) => {
     if (err) {
@@ -105,7 +99,7 @@ const seedDefaultManager = () => {
           if (err) {
             console.error('Failed to seed manager:', err);
           } else {
-            console.log('Default manager account created: admin / admin123');
+            console.log(`Default manager account created: ${defaultUsername}`);
           }
         }
       );
