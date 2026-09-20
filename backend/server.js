@@ -20,7 +20,18 @@ initializeDB();
 
 // Middleware
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      'https://dandana-frontend.vercel.app',
+      'http://localhost:5000',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173'
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS origin is not allowed'));
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));
