@@ -240,9 +240,11 @@ const ChatPage = () => {
       const res = await chatAPI.getMessages();
       if (res.data.success && Array.isArray(res.data.messages)) {
         mergeMessages(res.data.messages);
+        setConnected(true);
       }
     } catch (e) {
       console.error('Fetch messages network error:', e);
+      setConnected(false);
     }
     setLoading(false);
   };
@@ -251,6 +253,10 @@ const ChatPage = () => {
     // In production: connect directly to backend (Vercel proxy can't handle WebSocket upgrades)
     // In development: connect to '/' (Vite dev server proxies it)
     const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || '/';
+    if (import.meta.env.VITE_ENABLE_REALTIME !== 'true') {
+      return;
+    }
+
     const socket = io(SOCKET_URL, {
       auth: {
         token: localStorage.getItem('dandana_token')
