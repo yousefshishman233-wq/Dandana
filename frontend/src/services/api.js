@@ -35,7 +35,7 @@ export const authAPI = {
 
 // â”€â”€â”€ HR (Salary & Advances) â”€â”€â”€
 export const hrAPI = {
-  getSalaryCalculation: (userId, monthYear) => API.get(`/hr/salary/${userId}?month=${monthYear}`),
+  getSalaryCalculation: (userId, monthYear) => API.get(`/hr/salary/${userId}?monthYear=${encodeURIComponent(monthYear)}`),
   getAllSalaries:        (monthYear)         => API.get(`/hr/salaries?month=${monthYear}`),
   getSalarySummary:      (monthYear)         => API.get(`/hr/salary-summary?month=${monthYear}`),
   addAdvance:           (userId, amount, note, type) => API.post('/hr/advance', { user_id: userId, amount, note, type }),

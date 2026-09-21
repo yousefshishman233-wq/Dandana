@@ -244,7 +244,7 @@ exports.getSalaryCalculation = (req, res) => {
   if (req.user.role !== 'manager' && Number(userId) !== Number(req.user.id)) {
     return res.status(403).json({ success: false, message: 'غير مصرح بعرض راتب مستخدم آخر' });
   }
-  const { monthYear } = req.query;
+  const monthYear = req.query.monthYear || req.query.month;
 
   const now = new Date();
   const currentMonthYear = monthYear || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -326,7 +326,7 @@ exports.getSalaryCalculation = (req, res) => {
 // @desc    Get attendance statistics
 // @access  Private
 exports.getAttendanceStats = (req, res) => {
-  const { monthYear } = req.query;
+  const monthYear = req.query.monthYear || req.query.month;
   const now = new Date();
   const currentMonthYear = monthYear || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
