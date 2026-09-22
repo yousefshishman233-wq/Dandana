@@ -208,7 +208,7 @@ exports.getAllUsers = (req, res) => {
     params.push(req.query.branch_id);
   }
 
-  query += ' ORDER BY u.full_name';
+  query += ' ORDER BY u.id DESC';
 
   db.all(query, params, (err, users) => {
     if (err) return res.status(500).json({ success: false, message: 'Database error' });

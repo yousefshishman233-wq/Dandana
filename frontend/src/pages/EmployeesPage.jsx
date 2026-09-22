@@ -147,7 +147,7 @@ const EmployeesPage = () => {
   };
 
   const filtered = employees.filter(e => {
-    if (e.role === 'manager') return false; // don't show manager in list
+    if (e.username === 'admin') return false; // only hide root admin
     const matchSearch = !searchText || e.full_name?.includes(searchText) || e.username?.includes(searchText);
     const matchBranch = !filterBranch || String(e.branch_id) === String(filterBranch);
     const matchRole   = !filterRole   || e.role === filterRole;
@@ -155,7 +155,7 @@ const EmployeesPage = () => {
   });
 
   // Stats
-  const total     = employees.filter(e => e.role !== 'manager').length;
+  const total     = employees.filter(e => e.username !== 'admin').length;
   const perBranch = branches.map(b => ({
     ...b,
     count: employees.filter(e => String(e.branch_id) === String(b.id)).length,
