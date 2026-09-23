@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { authAPI } from '../services/api';
 
 const ALL_ROLES = [
   'manager', 'cashier', 'employee', 'chef', 'driver', 'accountant', 'prep', 'fridge', 'hall', 'delivery'
@@ -49,12 +50,56 @@ const Layout = ({ children }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
+  // Password change modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+
   const filteredNav = NAV_ITEMS.filter(item => user && item.roles.includes(user.role));
   const roleConf = ROLE_CONFIG[user?.role] || ROLE_CONFIG.employee;
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+    setPasswordSuccess('');
+
+    if (!newPassword || newPassword.trim().length < 4) {
+      setPasswordError('كلمة المرور الجديدة يجب أن تكون 4 خانات أو أكثر');
+      return;
+    }
+    if (newPassword.trim() !== confirmPassword.trim()) {
+      setPasswordError('كلمة المرور الجديدة وتأكيدها غير متطابقين');
+      return;
+    }
+
+    setSavingPassword(true);
+    try {
+      const res = await authAPI.changePassword(currentPassword.trim(), newPassword.trim());
+      if (res.data.success) {
+        setPasswordSuccess('✅ تم تغيير كلمة المرور بنجاح!');
+        setTimeout(() => {
+          setShowPasswordModal(false);
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setPasswordSuccess('');
+        }, 1500);
+      } else {
+        setPasswordError(res.data.message || 'فشل تغيير كلمة المرور');
+      }
+    } catch (err) {
+      setPasswordError(err.response?.data?.message || 'حدث خطأ، يرجى التأكد من صحة البيانات');
+    }
+    setSavingPassword(false);
   };
 
   const currentPage = filteredNav.find(item => location.pathname === item.href);
@@ -117,14 +162,32 @@ const Layout = ({ children }) => {
             </div>
           )}
           {expanded && (
-            <button
-              onClick={handleLogout}
-              title="تسجيل الخروج"
-              className="text-lg hover:scale-110 transition-transform"
-              id="logout-btn"
-            >
-              🚪
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  setPasswordError('');
+                  setPasswordSuccess('');
+                  setCurrentPassword('');
+                  setNewPassword('');
+                  setConfirmPassword('');
+                  setShowPasswordModal(true);
+                }}
+                title="تغيير كلمة المرور"
+                className="p-1.5 rounded-lg hover:scale-110 transition-transform text-sm"
+                style={{ background: 'rgba(255,179,71,0.2)', color: '#FFB347' }}
+                id="sidebar-change-pass-btn"
+              >
+                🔑
+              </button>
+              <button
+                onClick={handleLogout}
+                title="تسجيل الخروج"
+                className="p-1.5 rounded-lg hover:scale-110 transition-transform text-sm"
+                id="logout-btn"
+              >
+                🚪
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -189,6 +252,30 @@ const Layout = ({ children }) => {
 
           <div className="flex items-center gap-3">
             <Clock />
+
+            {/* Change Password button in Header */}
+            <button
+              onClick={() => {
+                setPasswordError('');
+                setPasswordSuccess('');
+                setCurrentPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+                setShowPasswordModal(true);
+              }}
+              title="تغيير كلمة المرور"
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:scale-105"
+              style={{
+                background: 'rgba(255,179,71,0.15)',
+                color: '#FFB347',
+                border: '1px solid rgba(255,179,71,0.3)',
+              }}
+              id="header-change-pass-btn"
+            >
+              <span>🔑</span>
+              <span className="hidden sm:inline">تغيير الباسورد</span>
+            </button>
+
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: 'rgba(108,99,255,0.08)', border: '1px solid var(--dark-border)' }}>
               <span className="text-sm">{roleConf.icon}</span>
@@ -205,6 +292,104 @@ const Layout = ({ children }) => {
           {children}
         </main>
       </div>
+
+      {/* ── Change Password Modal ── */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }} dir="rtl">
+          <div className="glass-card-static p-6 w-full max-w-md animate-scaleIn">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-bold text-lg flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                <span>🔑</span> تغيير كلمة المرور
+              </h3>
+              <button
+                onClick={() => setShowPasswordModal(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-sm hover:bg-white/10"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {passwordSuccess && (
+              <div className="mb-4 p-3 rounded-xl text-sm text-center font-bold"
+                style={{ background: 'rgba(0,212,170,0.15)', color: 'var(--accent)', border: '1px solid rgba(0,212,170,0.3)' }}>
+                {passwordSuccess}
+              </div>
+            )}
+            {passwordError && (
+              <div className="mb-4 p-3 rounded-xl text-sm text-center font-medium"
+                style={{ background: 'rgba(255,71,87,0.15)', color: '#FF4757', border: '1px solid rgba(255,71,87,0.3)' }}>
+                ⚠️ {passwordError}
+              </div>
+            )}
+
+            <form onSubmit={handlePasswordChange} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold mb-1 block" style={{ color: 'var(--text-secondary)' }}>
+                  كلمة المرور الحالية
+                </label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="أدخل كلمة المرور الحالية"
+                  className="input-dark w-full"
+                  style={{ direction: 'ltr' }}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold mb-1 block" style={{ color: 'var(--text-secondary)' }}>
+                  كلمة المرور الجديدة *
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="كلمة مرور جديدة (4 خانات على الأقل)"
+                  className="input-dark w-full"
+                  required
+                  style={{ direction: 'ltr' }}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold mb-1 block" style={{ color: 'var(--text-secondary)' }}>
+                  تأكيد كلمة المرور الجديدة *
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="أعد كتابة كلمة المرور الجديدة"
+                  className="input-dark w-full"
+                  required
+                  style={{ direction: 'ltr' }}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-3">
+                <button
+                  type="submit"
+                  disabled={savingPassword}
+                  className="btn-primary flex-1 text-center py-2.5 font-bold disabled:opacity-50"
+                  id="submit-change-password-btn"
+                >
+                  {savingPassword ? '⏳ جاري الحفظ...' : '💾 حفظ كلمة المرور'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  className="btn-secondary flex-1 text-center py-2.5"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

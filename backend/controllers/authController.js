@@ -220,7 +220,7 @@ exports.getAllUsers = (req, res) => {
 // @desc    Get all branches with shift timing and grace period
 // @access  Private
 exports.getBranches = (req, res) => {
-  db.all('SELECT id, name, COALESCE(shift_start_time, "09:00") as shift_start_time, COALESCE(grace_period_minutes, 15) as grace_period_minutes, created_at FROM branches ORDER BY id', [], (err, branches) => {
+  db.all("SELECT id, name, COALESCE(shift_start_time, '09:00') as shift_start_time, COALESCE(grace_period_minutes, 15) as grace_period_minutes, created_at FROM branches ORDER BY id", [], (err, branches) => {
     if (err) return res.status(500).json({ success: false, message: 'Database error' });
     res.json({ success: true, branches });
   });
@@ -412,15 +412,17 @@ exports.getAttendance = (req, res) => {
 // @desc    Clock in or Send Attendance Request for today with active branch & late detection
 // @access  Private
 exports.clockIn = (req, res) => {
-  const userId = ['manager', 'cashier'].includes(req.user.role) && req.body.user_id
+  // Only a manager may create an attendance record for somebody else.
+  // A cashier can clock in only themself; employees always create a pending request.
+  const userId = req.user.role === 'manager' && req.body.user_id
     ? Number(req.body.user_id) : req.user.id;
   const branchId = req.body.branch_id || req.user.branch_id || null;
   const today = new Date().toISOString().split('T')[0];
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' });
 
   // Determine base status: if created by employee himself (and not cashier/manager), status is 'pending'
-  const isManagementCaller = ['manager', 'cashier'].includes(req.user.role);
-  const baseTargetStatus = isManagementCaller ? 'present' : 'pending';
+  const isManagementCaller = req.user.role === 'manager';
+  const baseTargetStatus = isManagementCaller || req.user.role === 'cashier' ? 'present' : 'pending';
 
   const proceedWithClockIn = (finalStatus, isLate, delayMinutes, branchName, empName) => {
     // Update user's branch_id if passed
@@ -486,7 +488,7 @@ exports.clockIn = (req, res) => {
     const empName = user?.full_name || user?.username || 'الموظف';
 
     // Get branch timing info
-    db.get('SELECT name, COALESCE(shift_start_time, "09:00") as shift_start_time, COALESCE(grace_period_minutes, 15) as grace_period_minutes FROM branches WHERE id = ?', [branchId], (err, branch) => {
+    db.get("SELECT name, COALESCE(shift_start_time, '09:00') as shift_start_time, COALESCE(grace_period_minutes, 15) as grace_period_minutes FROM branches WHERE id = ?", [branchId], (err, branch) => {
       let isLate = false;
       let delayMinutes = 0;
       const branchName = branch?.name || 'الفرع';
@@ -503,7 +505,11 @@ exports.clockIn = (req, res) => {
         }
       }
 
-      const finalStatus = isLate ? 'late' : baseTargetStatus;
+      // Employee requests remain pending even if submitted after shift start.
+      // The cashier/manager approves the request before it becomes attendance.
+      const finalStatus = baseTargetStatus === 'pending'
+        ? 'pending'
+        : (isLate ? 'late' : baseTargetStatus);
 
       if (user && user.role === 'cashier' && branchId) {
         db.get(`
@@ -540,15 +546,30 @@ exports.updateAttendanceStatus = (req, res) => {
     return res.status(400).json({ success: false, message: 'حالة حضور غير صالحة' });
   }
 
-  db.run(
-    'UPDATE attendance SET status = ? WHERE id = ?',
-    [status, id],
-    function(err) {
+  db.get(
+    'SELECT id, branch_id, status FROM attendance WHERE id = ?',
+    [id],
+    (lookupErr, record) => {
+      if (lookupErr) return res.status(500).json({ success: false, message: 'Database error' });
+      if (!record) return res.status(404).json({ success: false, message: 'Attendance request not found' });
+      if (req.user.role === 'cashier' && Number(record.branch_id) !== Number(req.user.branch_id)) {
+        return res.status(403).json({ success: false, message: 'لا يمكنك اعتماد طلبات حضور فرع آخر' });
+      }
+      if (record.status !== 'pending' && req.user.role !== 'manager') {
+        return res.status(400).json({ success: false, message: 'هذا الطلب تم التعامل معه بالفعل' });
+      }
+
+      db.run(
+        'UPDATE attendance SET status = ? WHERE id = ?',
+        [status, id],
+        function(err) {
       if (err) return res.status(500).json({ success: false, message: 'Database error: ' + err.message });
       const msg = status === 'present'
         ? '✅ تم قبول طلب الحضور وتأكيد الموظف بالفرع بنجاح'
         : '❌ تم رفض طلب الحضور';
-      res.json({ success: true, message: msg });
+          res.json({ success: true, message: msg });
+        }
+      );
     }
   );
 };
@@ -557,7 +578,7 @@ exports.updateAttendanceStatus = (req, res) => {
 // @desc    Clock out for today
 // @access  Private
 exports.clockOut = (req, res) => {
-  const userId = ['manager', 'cashier'].includes(req.user.role) && req.body.user_id
+  const userId = req.user.role === 'manager' && req.body.user_id
     ? Number(req.body.user_id) : req.user.id;
   const today = new Date().toISOString().split('T')[0];
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' });
@@ -800,5 +821,47 @@ exports.markNotificationRead = (req, res) => {
   db.run(query, params, function(err) {
     if (err) return res.status(500).json({ success: false, message: 'Database error' });
     res.json({ success: true, message: 'تم تحديث الإشعار' });
+  });
+};
+
+// @route   PUT /api/auth/change-password
+// @desc    Change password for authenticated user (e.g. manager)
+// @access  Private
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!newPassword || !newPassword.trim()) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال كلمة المرور الجديدة' });
+  }
+
+  if (newPassword.trim().length < 4) {
+    return res.status(400).json({ success: false, message: 'كلمة المرور يجب ألا تقل عن 4 خانات' });
+  }
+
+  db.get('SELECT * FROM users WHERE id = ?', [req.user.id], async (err, user) => {
+    if (err) return res.status(500).json({ success: false, message: 'Database error' });
+    if (!user) return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
+
+    if (currentPassword && currentPassword.trim()) {
+      const isMatch = await bcrypt.compare(currentPassword.trim(), user.password);
+      if (!isMatch) {
+        return res.status(400).json({ success: false, message: 'كلمة المرور الحالية غير صحيحة' });
+      }
+    }
+
+    try {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(newPassword.trim(), salt);
+
+      db.run(
+        'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [hashedPassword, req.user.id],
+        function(updateErr) {
+          if (updateErr) return res.status(500).json({ success: false, message: 'فشل حفظ كلمة المرور الجديدة' });
+          res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح' });
+        }
+      );
+    } catch (hashErr) {
+      res.status(500).json({ success: false, message: 'خطأ في تشفير كلمة المرور' });
+    }
   });
 };

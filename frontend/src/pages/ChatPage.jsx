@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { chatAPI, authAPI } from '../services/api';
-import io from 'socket.io-client';
 import localforage from 'localforage';
 
 // Configure local offline chat database in IndexedDB
@@ -155,7 +154,8 @@ const ChatPage = () => {
   const [connected, setConnected] = useState(false);
   const [typing, setTyping] = useState([]);
   const messagesEndRef = useRef(null);
-  const socketRef = useRef(null);
+  const pollIntervalRef = useRef(null);
+  const lastMsgIdRef = useRef(0);
   const typingTimeoutRef = useRef(null);
 
   // Users for @mentions
@@ -177,26 +177,10 @@ const ChatPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  const mergeMessages = useCallback((incoming) => {
-    if (!Array.isArray(incoming) || incoming.length === 0) return;
-    setMessages(prev => {
-      const byId = new Map(prev.map(message => [message.id, message]));
-      incoming.forEach(message => {
-        if (message?.id != null) byId.set(message.id, message);
-      });
-      const next = Array.from(byId.values()).sort((a, b) =>
-        String(a.created_at || '').localeCompare(String(b.created_at || ''))
-      );
-      chatStore.setItem('all_messages', next).catch(console.error);
-      return next;
-    });
-  }, []);
-
   useEffect(() => {
     fetchMessages();
     fetchUsers();
-    connectSocket();
-    const refreshTimer = setInterval(fetchMessages, 5000);
+    startPolling();
 
     // Request Web Push Notification permission
     if ('Notification' in window && Notification.permission === 'default') {
@@ -204,8 +188,7 @@ const ChatPage = () => {
     }
 
     return () => {
-      socketRef.current?.disconnect();
-      clearInterval(refreshTimer);
+      stopPolling();
       if (recordTimerRef.current) clearInterval(recordTimerRef.current);
     };
   }, []);
@@ -239,91 +222,62 @@ const ChatPage = () => {
     try {
       const res = await chatAPI.getMessages();
       if (res.data.success && Array.isArray(res.data.messages)) {
-        mergeMessages(res.data.messages);
-        setConnected(true);
+        setMessages(res.data.messages);
+        // Persist on device storage so next time it loads instantly without network
+        chatStore.setItem('all_messages', res.data.messages).catch(console.error);
       }
     } catch (e) {
       console.error('Fetch messages network error:', e);
-      setConnected(false);
     }
     setLoading(false);
   };
 
-  const connectSocket = () => {
-    // In production: connect directly to backend (Vercel proxy can't handle WebSocket upgrades)
-    // In development: connect to '/' (Vite dev server proxies it)
-    const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || '/';
-    if (import.meta.env.VITE_ENABLE_REALTIME !== 'true') {
-      return;
-    }
-
-    const socket = io(SOCKET_URL, {
-      auth: {
-        token: localStorage.getItem('dandana_token')
-      },
-      transports: ['polling', 'websocket'],  // polling first (works on serverless), then upgrade if possible
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
-    });
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      setConnected(true);
-      socket.emit('joinChat');
-    });
-
-    socket.on('disconnect', () => setConnected(false));
-    socket.on('connect_error', (err) => {
-      console.error('Chat connection error:', err.message);
-      setConnected(false);
-    });
-
-    socket.on('newMessage', (msg) => {
-      mergeMessages([msg]);
-
-      // Play chime & show notification if message is from someone else
-      if (msg.sender_id !== user?.id && msg.user_id !== user?.id) {
-        playNotificationChime();
-
-        const notifTitle = `DanDana 💬 ${msg.full_name || 'رسالة جديدة'}`;
-        const notifBody = msg.media_type === 'audio' ? '🎤 رسالة صوتية جديدة' : msg.media_type === 'image' ? '📷 صورة مرفقة' : (msg.message || 'رسالة جديدة');
-
-        // Show lockscreen/system notification via Service Worker
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'SHOW_NOTIFICATION',
-            title: notifTitle,
-            body: notifBody,
-            icon: '/icons/icon-192.png',
-            tag: 'chat-' + (msg.id || Date.now())
+  const startPolling = () => {
+    setConnected(true);
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await chatAPI.getMessages();
+        if (res.data.success && Array.isArray(res.data.messages)) {
+          const newMessages = res.data.messages;
+          setMessages(prev => {
+            // Check if we have new messages (by comparing last id)
+            const lastNew = newMessages[newMessages.length - 1];
+            const lastOld = prev[prev.length - 1];
+            const hasNew = lastNew && (!lastOld || lastNew.id !== lastOld.id);
+            if (hasNew) {
+              // Play chime for messages from others
+              const addedMsgs = newMessages.filter(m => !prev.find(p => p.id === m.id));
+              addedMsgs.forEach(msg => {
+                if (msg.sender_id !== user?.id && msg.user_id !== user?.id) {
+                  playNotificationChime();
+                  const notifTitle = `DanDana 💬 ${msg.full_name || 'رسالة جديدة'}`;
+                  const notifBody = msg.media_type === 'audio' ? '🎤 رسالة صوتية جديدة' : msg.media_type === 'image' ? '📷 صورة مرفقة' : (msg.message || 'رسالة جديدة');
+                  if ('Notification' in window && Notification.permission === 'granted') {
+                    try { new Notification(notifTitle, { body: notifBody, icon: '/icons/icon-192.png' }); } catch (err) {}
+                  }
+                }
+              });
+              chatStore.setItem('all_messages', newMessages).catch(console.error);
+            }
+            return hasNew ? newMessages : prev;
           });
-        } else if ('Notification' in window && Notification.permission === 'granted') {
-          try {
-            new Notification(notifTitle, {
-              body: notifBody,
-              icon: '/icons/icon-192.png'
-            });
-          } catch (err) {}
         }
+      } catch (e) {
+        // Silent fail on poll errors
       }
-    });
+    }, 5000);
+  };
 
-    socket.on('typing', ({ name, id }) => {
-      if (id !== user?.id) {
-        setTyping(prev => {
-          if (!prev.includes(name)) return [...prev, name];
-          return prev;
-        });
-        setTimeout(() => {
-          setTyping(prev => prev.filter(n => n !== name));
-        }, 3000);
-      }
-    });
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    setConnected(false);
   };
 
   const handleTyping = () => {
-    socketRef.current?.emit('typing', { name: user?.full_name, id: user?.id });
+    // Typing indicator not available in polling mode
   };
 
   // Start recording audio note
@@ -420,32 +374,38 @@ const ChatPage = () => {
 
   const sendMediaMessage = async (mediaUrl, mediaType, defaultText) => {
     try {
-      const response = await chatAPI.sendMessage(newMsg.trim() || defaultText, mediaUrl, mediaType);
-      if (response.data.success) {
-        mergeMessages([response.data.data]);
-        setNewMsg('');
-        setMsgType('text');
+      const text = newMsg.trim() || defaultText;
+      await chatAPI.sendMessage(text, mediaUrl, mediaType);
+      setNewMsg('');
+      setMsgType('text');
+      // Immediately fetch to show the sent message
+      const res = await chatAPI.getMessages();
+      if (res.data.success && Array.isArray(res.data.messages)) {
+        setMessages(res.data.messages);
+        chatStore.setItem('all_messages', res.data.messages).catch(console.error);
       }
-    } catch (err) {
-      console.error('Send media message error:', err);
-      alert(err.response?.data?.message || 'تعذر إرسال الرسالة');
+    } catch (e) {
+      console.error('Send media error:', e);
     }
   };
 
   const handleSend = async (e) => {
     e?.preventDefault();
     if (!newMsg.trim()) return;
+    const text = newMsg.trim();
+    setNewMsg('');
+    setMsgType('text');
+    setShowMentionBox(false);
     try {
-      const response = await chatAPI.sendMessage(newMsg.trim(), null, 'text');
-      if (response.data.success) {
-        mergeMessages([response.data.data]);
-        setNewMsg('');
-        setMsgType('text');
-        setShowMentionBox(false);
+      await chatAPI.sendMessage(text, null, 'text');
+      // Immediately fetch to show the sent message
+      const res = await chatAPI.getMessages();
+      if (res.data.success && Array.isArray(res.data.messages)) {
+        setMessages(res.data.messages);
+        chatStore.setItem('all_messages', res.data.messages).catch(console.error);
       }
-    } catch (err) {
-      console.error('Send message error:', err);
-      alert(err.response?.data?.message || 'تعذر إرسال الرسالة');
+    } catch (e) {
+      console.error('Send message error:', e);
     }
   };
 

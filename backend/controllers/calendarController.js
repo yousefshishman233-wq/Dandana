@@ -5,7 +5,9 @@ const { db } = require('../config/db');
 // @access  Private
 exports.getLeaves = (req, res) => {
   const { user_id } = req.query;
-  const isManagerOrDelegated = req.user.role === 'manager' || req.user.can_manage_leaves === 1;
+  db.get('SELECT can_manage_leaves FROM users WHERE id = ?', [req.user.id], (permissionErr, currentUser) => {
+  if (permissionErr) return res.status(500).json({ success: false, message: 'Database error' });
+  const isManagerOrDelegated = req.user.role === 'manager' || currentUser?.can_manage_leaves === 1;
 
   let query = `
     SELECT l.*, u.full_name, u.role,
@@ -30,6 +32,7 @@ exports.getLeaves = (req, res) => {
   db.all(query, params, (err, leaves) => {
     if (err) return res.status(500).json({ success: false, message: 'Database error: ' + err.message });
     res.json({ success: true, leaves });
+  });
   });
 };
 

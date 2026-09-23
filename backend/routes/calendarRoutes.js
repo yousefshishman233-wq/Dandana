@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { auth, authorize } = require('../middleware/auth');
+const { db } = require('../config/db');
 const c = require('../controllers/calendarController');
 
 // GET leaves — manager sees all, employee sees own
@@ -12,10 +13,13 @@ router.post('/leave',  auth, c.requestLeave);
 
 // Middleware for manager or delegated leave manager
 const authorizeLeaveManager = (req, res, next) => {
-  if (req.user && (req.user.role === 'manager' || req.user.can_manage_leaves === 1)) {
+  if (req.user?.role === 'manager') {
     return next();
   }
-  return res.status(403).json({ success: false, message: 'غير مصرح: هذه الصلاحية للمدير أو مفوض إدارة الإجازات فقط' });
+  return db.get('SELECT can_manage_leaves FROM users WHERE id = ?', [req.user?.id], (err, user) => {
+    if (!err && user?.can_manage_leaves === 1) return next();
+    return res.status(403).json({ success: false, message: 'غير مصرح بإدارة الإجازات' });
+  });
 };
 
 // PUT approve/reject (both patterns)

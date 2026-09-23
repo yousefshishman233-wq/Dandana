@@ -174,7 +174,9 @@ exports.updateAdvanceStatus = (req, res) => {
 // @access  Private
 exports.getAdvancesByUser = (req, res) => {
   const { userId } = req.params;
-  if (req.user.role !== 'manager' && Number(userId) !== Number(req.user.id)) {
+  const isManager = req.user.role === 'manager';
+  const isCashier = req.user.role === 'cashier';
+  if (!isManager && !isCashier && Number(userId) !== Number(req.user.id)) {
     return res.status(403).json({ success: false, message: 'غير مصرح بعرض سلف مستخدم آخر' });
   }
   const { month, status } = req.query;
@@ -193,6 +195,10 @@ exports.getAdvancesByUser = (req, res) => {
     WHERE a.user_id = ?
   `;
   const params = [userId];
+  if (isCashier && req.user.branch_id) {
+    query += ' AND u.branch_id = ?';
+    params.push(req.user.branch_id);
+  }
 
   if (month) {
     query += ` AND strftime('%Y-%m', a.date) = ?`;
@@ -241,7 +247,9 @@ exports.paybackAdvance = (req, res) => {
 // @access  Private
 exports.getSalaryCalculation = (req, res) => {
   const { userId } = req.params;
-  if (req.user.role !== 'manager' && Number(userId) !== Number(req.user.id)) {
+  const isManager = req.user.role === 'manager';
+  const isCashier = req.user.role === 'cashier';
+  if (!isManager && !isCashier && Number(userId) !== Number(req.user.id)) {
     return res.status(403).json({ success: false, message: 'غير مصرح بعرض راتب مستخدم آخر' });
   }
   const monthYear = req.query.monthYear || req.query.month;
@@ -249,7 +257,14 @@ exports.getSalaryCalculation = (req, res) => {
   const now = new Date();
   const currentMonthYear = monthYear || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  db.get('SELECT id, full_name, salary FROM users WHERE id = ?', [userId], (err, user) => {
+  let userQuery = 'SELECT id, full_name, salary FROM users WHERE id = ?';
+  const userParams = [userId];
+  if (isCashier && req.user.branch_id) {
+    userQuery += ' AND branch_id = ?';
+    userParams.push(req.user.branch_id);
+  }
+
+  db.get(userQuery, userParams, (err, user) => {
     if (err || !user) {
       return res.status(404).json({
         success: false,
@@ -260,7 +275,7 @@ exports.getSalaryCalculation = (req, res) => {
     // 1. Fetch attendance records for the user in the selected month
     db.all(
       `SELECT status, clock_in FROM attendance 
-       WHERE user_id = ? AND strftime("%Y-%m", date) = ?`,
+       WHERE user_id = ? AND strftime('%Y-%m', date) = ?`,
       [userId, currentMonthYear],
       (err, attRecords) => {
         let daysWorked = 0;
@@ -287,7 +302,7 @@ exports.getSalaryCalculation = (req, res) => {
              SUM(CASE WHEN (type = 'advance' OR type IS NULL) AND (reason NOT LIKE '%آيس كريم%' OR reason IS NULL) AND (status = 'approved' OR status IS NULL) THEN amount ELSE 0 END) as total_advances,
              SUM(CASE WHEN status = 'approved' OR status IS NULL THEN amount ELSE 0 END) as total
            FROM advances 
-           WHERE user_id = ? AND strftime("%Y-%m", date) = ? AND is_paid_back = 0`,
+           WHERE user_id = ? AND strftime('%Y-%m', date) = ? AND is_paid_back = 0`,
           [userId, currentMonthYear],
           (err, advancesResult) => {
             const iceCreamDeduction = advancesResult?.[0]?.total_ice_cream || 0;
@@ -333,7 +348,7 @@ exports.getAttendanceStats = (req, res) => {
   db.all(
     `SELECT a.*, u.full_name, u.role FROM attendance a 
      JOIN users u ON a.user_id = u.id 
-     WHERE strftime("%Y-%m", a.date) = ? 
+     WHERE strftime('%Y-%m', a.date) = ? 
      ORDER BY u.full_name, a.date`,
     [currentMonthYear],
     (err, records) => {

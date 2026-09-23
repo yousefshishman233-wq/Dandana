@@ -1,23 +1,17 @@
-import React, { lazy, Suspense } from 'react';
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth, AuthProvider } from './context/AuthContext';
+import LoginPage from './pages/LoginPage';
+import Dashboard from './pages/Dashboard';
+import AttendancePage from './pages/AttendancePage';
+import SalaryPage from './pages/SalaryPage';
+import InventoryPage from './pages/InventoryPage';
+import ChatPage from './pages/ChatPage';
+import CalendarPage from './pages/CalendarPage';
+import EmployeesPage from './pages/EmployeesPage';
+import SettingsPage from './pages/SettingsPage';
 import Layout from './components/Layout';
 import './index.css';
-
-const LoginPage = lazy(() => import('./pages/LoginPage'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const AttendancePage = lazy(() => import('./pages/AttendancePage'));
-const SalaryPage = lazy(() => import('./pages/SalaryPage'));
-const InventoryPage = lazy(() => import('./pages/InventoryPage'));
-const ChatPage = lazy(() => import('./pages/ChatPage'));
-const CalendarPage = lazy(() => import('./pages/CalendarPage'));
-const EmployeesPage = lazy(() => import('./pages/EmployeesPage'));
-
-const PageLoading = () => (
-  <div className="flex min-h-[40vh] items-center justify-center">
-    <div className="spinner" style={{ width: '36px', height: '36px', borderWidth: '3px' }} />
-  </div>
-);
 
 const ProtectedRoute = ({ children, allowedRoles = null }) => {
   const { isAuthenticated, loading, user } = useAuth();
@@ -45,29 +39,28 @@ const ProtectedRoute = ({ children, allowedRoles = null }) => {
 function AppContent() {
   return (
     <Router>
-      <Suspense fallback={<PageLoading />}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/attendance" element={<AttendancePage />} />
-                    <Route path="/salary" element={<SalaryPage />} />
-                    <Route path="/inventory" element={<ProtectedRoute allowedRoles={['manager', 'cashier']}><InventoryPage /></ProtectedRoute>} />
-                    <Route path="/chat" element={<ChatPage />} />
-                    <Route path="/calendar" element={<CalendarPage />} />
-                    <Route path="/employees" element={<ProtectedRoute allowedRoles={['manager']}><EmployeesPage /></ProtectedRoute>} />
-                  </Routes>
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <Layout>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/attendance" element={<AttendancePage />} />
+                  <Route path="/salary" element={<SalaryPage />} />
+                  <Route path="/inventory" element={<InventoryPage />} />
+                  <Route path="/chat" element={<ChatPage />} />
+                  <Route path="/calendar" element={<CalendarPage />} />
+                  <Route path="/employees" element={<ProtectedRoute allowedRoles={['manager']}><EmployeesPage /></ProtectedRoute>} />
+                  <Route path="/settings" element={<ProtectedRoute allowedRoles={['manager']}><SettingsPage /></ProtectedRoute>} />
+                </Routes>
+              </Layout>
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
     </Router>
   );
 }
