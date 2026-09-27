@@ -54,8 +54,19 @@ export const AuthProvider = ({ children }) => {
     setIsAuthenticated(false);
   };
 
+  const updateSession = ({ user: userData, token }) => {
+    if (token) {
+      localStorage.setItem('dandana_token', token);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+    if (userData) {
+      localStorage.setItem('dandana_user', JSON.stringify(userData));
+      setUser(userData);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAuthenticated, login, logout, updateSession }}>
       {children}
     </AuthContext.Provider>
   );

@@ -3,7 +3,12 @@ import { useAuth } from '../context/AuthContext';
 import { authAPI } from '../services/api';
 
 const SettingsPage = () => {
-  const { user } = useAuth();
+  const { user, updateSession } = useAuth();
+  const [username, setUsername] = useState(user?.username || '');
+  const [usernamePassword, setUsernamePassword] = useState('');
+  const [usernameLoading, setUsernameLoading] = useState(false);
+  const [usernameSuccess, setUsernameSuccess] = useState('');
+  const [usernameError, setUsernameError] = useState('');
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -12,6 +17,39 @@ const SettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+
+  const handleChangeUsername = async (e) => {
+    e.preventDefault();
+    setUsernameError('');
+    setUsernameSuccess('');
+
+    const nextUsername = username.trim();
+    if (nextUsername.length < 3 || nextUsername.length > 50) {
+      setUsernameError('اسم المستخدم يجب أن يكون بين 3 و50 حرفاً');
+      return;
+    }
+    if (!usernamePassword.trim()) {
+      setUsernameError('يرجى إدخال كلمة المرور الحالية للتأكيد');
+      return;
+    }
+
+    setUsernameLoading(true);
+    try {
+      const res = await authAPI.changeUsername(nextUsername, usernamePassword.trim());
+      if (res.data.success) {
+        updateSession({ user: res.data.user, token: res.data.token });
+        setUsername(res.data.user.username);
+        setUsernamePassword('');
+        setUsernameSuccess('✅ تم تغيير اسم المستخدم بنجاح');
+      } else {
+        setUsernameError(res.data.message || 'فشل تغيير اسم المستخدم');
+      }
+    } catch (err) {
+      setUsernameError(err.response?.data?.message || 'حدث خطأ، يرجى المحاولة مرة أخرى');
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -71,6 +109,65 @@ const SettingsPage = () => {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="glass-card p-6 mb-5 animate-fadeInUp delay-50">
+        <h3 className="font-bold text-base mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+          👤 تغيير اسم المستخدم
+        </h3>
+
+        {usernameError && (
+          <div role="alert" className="mb-4 p-3 rounded-xl text-sm"
+            style={{ background: 'rgba(255,71,87,0.15)', border: '1px solid rgba(255,71,87,0.3)', color: '#FF6B9D' }}>
+            ⚠️ {usernameError}
+          </div>
+        )}
+        {usernameSuccess && (
+          <div role="status" className="mb-4 p-3 rounded-xl text-sm"
+            style={{ background: 'rgba(0,212,170,0.15)', border: '1px solid rgba(0,212,170,0.3)', color: 'var(--accent)' }}>
+            {usernameSuccess}
+          </div>
+        )}
+
+        <form onSubmit={handleChangeUsername} className="space-y-4">
+          <div>
+            <label htmlFor="manager-username" className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+              اسم المستخدم الجديد
+            </label>
+            <input
+              id="manager-username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="input-dark w-full"
+              autoComplete="username"
+              minLength={3}
+              maxLength={50}
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="username-current-password" className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+              كلمة المرور الحالية للتأكيد
+            </label>
+            <input
+              id="username-current-password"
+              type="password"
+              value={usernamePassword}
+              onChange={(e) => setUsernamePassword(e.target.value)}
+              className="input-dark w-full"
+              autoComplete="current-password"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={usernameLoading}
+            className="btn-primary w-full text-center disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {usernameLoading ? '⏳ جاري الحفظ...' : '💾 حفظ اسم المستخدم'}
+          </button>
+        </form>
       </div>
 
       {/* Change Password Card */}

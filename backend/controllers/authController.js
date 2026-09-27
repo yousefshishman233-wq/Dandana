@@ -871,3 +871,68 @@ exports.changePassword = async (req, res) => {
     }
   });
 };
+
+exports.changeUsername = (req, res) => {
+  const username = typeof req.body.username === 'string' ? req.body.username.trim() : '';
+  const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword.trim() : '';
+
+  if (!username || username.length < 3 || username.length > 50) {
+    return res.status(400).json({ success: false, message: 'اسم المستخدم يجب أن يكون بين 3 و50 حرفاً' });
+  }
+  if (!currentPassword) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال كلمة المرور الحالية للتأكيد' });
+  }
+
+  db.get('SELECT * FROM users WHERE id = ?', [req.user.id], async (err, user) => {
+    if (err) return res.status(500).json({ success: false, message: 'Database error' });
+    if (!user) return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
+
+    try {
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) {
+        return res.status(400).json({ success: false, message: 'كلمة المرور الحالية غير صحيحة' });
+      }
+
+      db.get(
+        'SELECT id FROM users WHERE LOWER(TRIM(username)) = LOWER(?) AND id != ?',
+        [username, req.user.id],
+        (lookupErr, existingUser) => {
+          if (lookupErr) return res.status(500).json({ success: false, message: 'Database error' });
+          if (existingUser) {
+            return res.status(409).json({ success: false, message: 'اسم المستخدم مستخدم بالفعل' });
+          }
+
+          db.run(
+            'UPDATE users SET username = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [username, req.user.id],
+            function(updateErr) {
+              if (updateErr) {
+                if (updateErr.code === 'SQLITE_CONSTRAINT') {
+                  return res.status(409).json({ success: false, message: 'اسم المستخدم مستخدم بالفعل' });
+                }
+                return res.status(500).json({ success: false, message: 'فشل حفظ اسم المستخدم الجديد' });
+              }
+
+              const updatedUser = { ...user, username };
+              res.json({
+                success: true,
+                message: 'تم تغيير اسم المستخدم بنجاح',
+                token: generateToken(updatedUser),
+                user: {
+                  id: updatedUser.id,
+                  username: updatedUser.username,
+                  full_name: updatedUser.full_name,
+                  role: updatedUser.role,
+                  salary: updatedUser.salary
+                }
+              });
+            }
+          );
+        }
+      );
+    } catch (verifyErr) {
+      console.error('Username change verification error:', verifyErr);
+      res.status(500).json({ success: false, message: 'فشل التحقق من كلمة المرور الحالية' });
+    }
+  });
+};

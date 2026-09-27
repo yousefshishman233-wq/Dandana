@@ -15,9 +15,6 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Initialize database
-initializeDB();
-
 // Middleware
 const corsOptions = {
   origin: (origin, callback) => {
@@ -146,8 +143,25 @@ const seedDefaultManager = () => {
   });
 };
 
-// Run seed after database is initialized
-setTimeout(seedDefaultManager, 1000);
+// Keep the app fail-closed until the full schema and chat migrations are ready.
+// The same promise is also observable to startup code and reports DB failures.
+const databaseReady = initializeDB();
+databaseReady
+  .then(() => setTimeout(seedDefaultManager, 1000))
+  .catch(err => console.error('Database startup is blocked until initialization succeeds:', err));
+
+app.use((req, res, next) => {
+  databaseReady.then(
+    () => next(),
+    err => {
+      console.error('Request rejected because database initialization failed:', err);
+      res.status(503).json({
+        success: false,
+        message: 'Database initialization failed'
+      });
+    }
+  );
+});
 
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));

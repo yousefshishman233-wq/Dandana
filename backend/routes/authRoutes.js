@@ -26,5 +26,6 @@ router.put('/attendance/:id/status', auth, authorize('cashier', 'manager'), auth
 router.post('/shift-transfer', auth, authController.shiftTransfer);
 router.post('/mark-absent', auth, authorize('cashier', 'manager'), authController.markAbsent);
 router.post('/change-password', auth, authorize('manager'), authController.changePassword);
+router.post('/change-username', auth, authorize('manager'), authController.changeUsername);
 
 module.exports = router;

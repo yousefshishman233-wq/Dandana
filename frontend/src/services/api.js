@@ -32,6 +32,7 @@ export const authAPI = {
   getNotifications:    ()                   => API.get('/auth/notifications'),
   markNotificationRead:(id)                 => API.put(`/auth/notifications/${id}/read`),
   changePassword:      (currentPassword, newPassword) => API.post('/auth/change-password', { currentPassword, newPassword }),
+  changeUsername:      (username, currentPassword) => API.post('/auth/change-username', { username, currentPassword }),
 };
 
 // â”€â”€â”€ HR (Salary & Advances) â”€â”€â”€
@@ -78,7 +79,9 @@ export const expensesAPI = {
 // â”€â”€â”€ Chat â”€â”€â”€
 export const chatAPI = {
   getMessages: ()                           => API.get('/chat/messages'),
-  sendMessage: (message, mediaUrl, mediaType)=> API.post('/chat/messages', { message, media_url: mediaUrl, media_type: mediaType }),
+  sendMessage: (message, mediaUrl, mediaType, type = 'text') => API.post('/chat/messages', { message, media_url: mediaUrl, media_type: mediaType, type }),
+  toggleReaction: (messageId, reaction)     => API.post(`/chat/messages/${messageId}/reactions`, { reaction }),
+  deleteMessage: (messageId, scope)          => API.delete(`/chat/messages/${messageId}`, { data: { scope } }),
 };
 
 // â”€â”€â”€ Calendar â”€â”€â”€ (all aliases point to correct endpoints)

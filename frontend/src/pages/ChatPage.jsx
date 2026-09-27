@@ -22,6 +22,25 @@ const MSG_TYPES = {
   text: { icon: '💬', label: 'رسالة', bg: null },
 };
 
+const REACTION_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+const mediaFilename = (src, name, fallbackExtension) => {
+  const mime = src?.match(/^data:([^;,]+)/i)?.[1];
+  const extensions = {
+    'image/gif': 'gif',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'audio/mp4': 'm4a',
+    'audio/ogg': 'ogg',
+    'audio/webm': 'webm'
+  };
+  const extension = extensions[mime] || src?.match(/\.(jpe?g|png|gif|webp|mp4|webm|ogg|m4a)(?:[?#]|$)/i)?.[1] || fallbackExtension;
+  return `${name}.${extension}`;
+};
+
 // Double-chime audio generator using Web Audio API
 const playNotificationChime = () => {
   try {
@@ -140,6 +159,10 @@ const AudioMessagePlayer = ({ src }) => {
             <span>{duration > 0 ? formatSecs(duration) : 'صوتية'}</span>
           </span>
         </div>
+        <a href={src} download={mediaFilename(src, 'dandana-audio', 'm4a')}
+          className="text-xs text-accent underline" aria-label="تنزيل الرسالة الصوتية">
+          ⬇️
+        </a>
       </div>
     </div>
   );
@@ -153,6 +176,8 @@ const ChatPage = () => {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [typing, setTyping] = useState([]);
+  const [lightboxImage, setLightboxImage] = useState(null);
+  const [openMessageMenu, setOpenMessageMenu] = useState(null);
   const messagesEndRef = useRef(null);
   const pollIntervalRef = useRef(null);
   const lastMsgIdRef = useRef(0);
@@ -197,6 +222,15 @@ const ChatPage = () => {
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    if (!lightboxImage) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setLightboxImage(null);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [lightboxImage]);
+
   const fetchUsers = async () => {
     try {
       const res = await authAPI.getAllUsers();
@@ -209,7 +243,8 @@ const ChatPage = () => {
   const fetchMessages = async () => {
     // 1. Instantly load from local IndexedDB cache (Zero lag, no waiting for network)
     try {
-      const cached = await chatStore.getItem('all_messages');
+      const cacheKey = `all_messages_${user?.id || 'anonymous'}`;
+      const cached = await chatStore.getItem(cacheKey);
       if (cached && Array.isArray(cached) && cached.length > 0) {
         setMessages(cached);
         setLoading(false);
@@ -224,7 +259,7 @@ const ChatPage = () => {
       if (res.data.success && Array.isArray(res.data.messages)) {
         setMessages(res.data.messages);
         // Persist on device storage so next time it loads instantly without network
-        chatStore.setItem('all_messages', res.data.messages).catch(console.error);
+        chatStore.setItem(`all_messages_${user?.id || 'anonymous'}`, res.data.messages).catch(console.error);
       }
     } catch (e) {
       console.error('Fetch messages network error:', e);
@@ -240,26 +275,31 @@ const ChatPage = () => {
         if (res.data.success && Array.isArray(res.data.messages)) {
           const newMessages = res.data.messages;
           setMessages(prev => {
-            // Check if we have new messages (by comparing last id)
-            const lastNew = newMessages[newMessages.length - 1];
-            const lastOld = prev[prev.length - 1];
-            const hasNew = lastNew && (!lastOld || lastNew.id !== lastOld.id);
-            if (hasNew) {
-              // Play chime for messages from others
-              const addedMsgs = newMessages.filter(m => !prev.find(p => p.id === m.id));
-              addedMsgs.forEach(msg => {
-                if (msg.sender_id !== user?.id && msg.user_id !== user?.id) {
-                  playNotificationChime();
-                  const notifTitle = `DanDana 💬 ${msg.full_name || 'رسالة جديدة'}`;
-                  const notifBody = msg.media_type === 'audio' ? '🎤 رسالة صوتية جديدة' : msg.media_type === 'image' ? '📷 صورة مرفقة' : (msg.message || 'رسالة جديدة');
-                  if ('Notification' in window && Notification.permission === 'granted') {
-                    try { new Notification(notifTitle, { body: notifBody, icon: '/icons/icon-192.png' }); } catch (err) {}
-                  }
+            // Polling also synchronizes reactions and per-user deletions, not just new messages.
+            const oldIds = new Set(prev.map(message => String(message.id)));
+            const addedMsgs = newMessages.filter(message => !oldIds.has(String(message.id)));
+            const hasChanges = prev.length !== newMessages.length || newMessages.some((message, index) => {
+              const previous = prev[index];
+              return !previous ||
+                String(previous.id) !== String(message.id) ||
+                previous.message !== message.message ||
+                previous.deleted_for_everyone !== message.deleted_for_everyone ||
+                JSON.stringify(previous.reactions || []) !== JSON.stringify(message.reactions || []);
+            });
+            if (!hasChanges) return prev;
+
+            addedMsgs.forEach(msg => {
+              if (String(msg.sender_id) !== String(user?.id)) {
+                playNotificationChime();
+                const notifTitle = `DanDana 💬 ${msg.full_name || 'رسالة جديدة'}`;
+                const notifBody = msg.media_type === 'audio' ? '🎤 رسالة صوتية جديدة' : msg.media_type === 'image' ? '📷 صورة مرفقة' : (msg.message || 'رسالة جديدة');
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  try { new Notification(notifTitle, { body: notifBody, icon: '/icons/icon-192.png' }); } catch (err) {}
                 }
-              });
-              chatStore.setItem('all_messages', newMessages).catch(console.error);
-            }
-            return hasNew ? newMessages : prev;
+              }
+            });
+            chatStore.setItem(`all_messages_${user?.id || 'anonymous'}`, newMessages).catch(console.error);
+            return newMessages;
           });
         }
       } catch (e) {
@@ -356,6 +396,7 @@ const ChatPage = () => {
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
 
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
@@ -382,7 +423,7 @@ const ChatPage = () => {
       const res = await chatAPI.getMessages();
       if (res.data.success && Array.isArray(res.data.messages)) {
         setMessages(res.data.messages);
-        chatStore.setItem('all_messages', res.data.messages).catch(console.error);
+        chatStore.setItem(`all_messages_${user?.id || 'anonymous'}`, res.data.messages).catch(console.error);
       }
     } catch (e) {
       console.error('Send media error:', e);
@@ -397,12 +438,12 @@ const ChatPage = () => {
     setMsgType('text');
     setShowMentionBox(false);
     try {
-      await chatAPI.sendMessage(text, null, 'text');
+      await chatAPI.sendMessage(text, null, 'text', msgType);
       // Immediately fetch to show the sent message
       const res = await chatAPI.getMessages();
       if (res.data.success && Array.isArray(res.data.messages)) {
         setMessages(res.data.messages);
-        chatStore.setItem('all_messages', res.data.messages).catch(console.error);
+        chatStore.setItem(`all_messages_${user?.id || 'anonymous'}`, res.data.messages).catch(console.error);
       }
     } catch (e) {
       console.error('Send message error:', e);
@@ -437,7 +478,39 @@ const ChatPage = () => {
     u.username.toLowerCase().includes(mentionQuery)
   );
 
-  const isMe = (msg) => msg.sender_id === user?.id || msg.user_id === user?.id;
+  const isMe = (msg) => String(msg.sender_id ?? msg.user_id) === String(user?.id);
+
+  const refreshMessages = async () => {
+    const res = await chatAPI.getMessages();
+    if (res.data.success && Array.isArray(res.data.messages)) {
+      setMessages(res.data.messages);
+      chatStore.setItem(`all_messages_${user?.id || 'anonymous'}`, res.data.messages).catch(console.error);
+    }
+  };
+
+  const handleReaction = async (messageId, reaction) => {
+    try {
+      await chatAPI.toggleReaction(messageId, reaction);
+      await refreshMessages();
+    } catch (error) {
+      console.error('Reaction update error:', error);
+    }
+  };
+
+  const handleDeleteMessage = async (message, scope) => {
+    const confirmation = scope === 'everyone'
+      ? 'حذف هذه الرسالة من المحادثة للجميع؟'
+      : 'إخفاء هذه الرسالة من محادثتك فقط؟';
+    if (!window.confirm(confirmation)) return;
+    try {
+      await chatAPI.deleteMessage(message.id, scope);
+      setOpenMessageMenu(null);
+      await refreshMessages();
+    } catch (error) {
+      console.error('Message delete error:', error);
+      window.alert(error.response?.data?.message || 'تعذر حذف الرسالة');
+    }
+  };
 
   const formatTime = (ts) => {
     if (!ts) return '';
@@ -480,13 +553,36 @@ const ChatPage = () => {
 
         {msg.media_url && msg.media_type === 'image' && (
           <div className="mt-2 rounded-xl overflow-hidden max-w-xs border border-dark-border">
-            <img src={msg.media_url} alt="مرفق" className="w-full object-cover max-h-60" />
+            <button
+              type="button"
+              className="block w-full cursor-zoom-in"
+              onClick={() => setLightboxImage(msg.media_url)}
+              aria-label="فتح الصورة بالحجم الكامل"
+            >
+              <img src={msg.media_url} alt="صورة مرفقة بالرسالة" className="w-full object-cover max-h-60" />
+            </button>
+            <a
+              href={msg.media_url}
+              download={mediaFilename(msg.media_url, `dandana-image-${msg.id}`, 'jpg')}
+              className="block px-3 py-2 text-xs text-center bg-black/30 hover:bg-black/50"
+              aria-label="تنزيل الصورة"
+            >
+              ⬇️ تنزيل الصورة
+            </a>
           </div>
         )}
 
         {msg.media_url && msg.media_type === 'video' && (
           <div className="mt-2 rounded-xl overflow-hidden max-w-xs border border-dark-border">
             <video controls src={msg.media_url} className="w-full max-h-60" />
+            <a
+              href={msg.media_url}
+              download={mediaFilename(msg.media_url, `dandana-video-${msg.id}`, 'mp4')}
+              className="block px-3 py-2 text-xs text-center bg-black/30 hover:bg-black/50"
+              aria-label="تنزيل الفيديو"
+            >
+              ⬇️ تنزيل الفيديو
+            </a>
           </div>
         )}
       </div>
@@ -521,14 +617,14 @@ const ChatPage = () => {
               <p style={{ color: 'var(--text-muted)' }}>ابدأ المحادثة مع فريقك!</p>
             </div>
           ) : (
-            messages.map((msg, i) => {
+            messages.map((msg) => {
               const mine = isMe(msg);
               const av = getAvatar(msg.role, msg.full_name);
               const rc = ROLE_CONFIG[msg.role] || ROLE_CONFIG.employee;
               const mt = MSG_TYPES[msg.type] || MSG_TYPES.text;
 
               return (
-                <div key={i} className={`flex gap-3 animate-fadeInUp ${mine ? 'flex-row-reverse' : ''}`}>
+                <div key={msg.id} className={`flex gap-3 animate-fadeInUp ${mine ? 'flex-row-reverse' : ''}`}>
                   {/* Avatar */}
                   <div className="avatar w-9 h-9 text-sm flex-shrink-0 self-end mb-1"
                     style={{ background: `linear-gradient(135deg, ${av.color}, ${av.color}80)`, boxShadow: `0 0 10px ${av.color}40` }}>
@@ -562,6 +658,90 @@ const ChatPage = () => {
                     <span className="text-xs px-1" style={{ color: 'var(--text-muted)', fontFamily: 'Inter' }}>
                       {formatTime(msg.created_at)}
                     </span>
+                    {!msg.deleted_for_everyone && (
+                      <div className={`flex flex-wrap items-center gap-1 px-1 ${mine ? 'justify-end' : 'justify-start'}`}>
+                        {(msg.reactions || []).map(item => (
+                          <button
+                            key={item.reaction}
+                            type="button"
+                            onClick={() => handleReaction(msg.id, item.reaction)}
+                            aria-label={`التفاعل ${item.reaction}، ${item.count}`}
+                            aria-pressed={item.reacted}
+                            className="rounded-full px-2 py-1 text-xs border"
+                            style={{
+                              background: item.reacted ? 'rgba(108,99,255,0.25)' : 'var(--dark-surface)',
+                              borderColor: item.reacted ? 'var(--primary-light)' : 'var(--dark-border)'
+                            }}
+                          >
+                            {item.reaction} {item.count}
+                          </button>
+                        ))}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setOpenMessageMenu(openMessageMenu === `react-${msg.id}` ? null : `react-${msg.id}`)}
+                            className="rounded-full px-2 py-1 text-xs border"
+                            style={{ borderColor: 'var(--dark-border)', background: 'var(--dark-surface)' }}
+                            aria-label="إضافة تفاعل"
+                            aria-expanded={openMessageMenu === `react-${msg.id}`}
+                          >
+                            ☺️+
+                          </button>
+                          {openMessageMenu === `react-${msg.id}` && (
+                            <div className="absolute z-20 bottom-full mb-1 right-0 flex gap-1 rounded-xl p-2 shadow-xl"
+                              style={{ background: 'var(--dark-card)', border: '1px solid var(--dark-border)' }}>
+                              {REACTION_OPTIONS.map(reaction => (
+                                <button
+                                  key={reaction}
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenMessageMenu(null);
+                                    handleReaction(msg.id, reaction);
+                                  }}
+                                  className="p-1 text-lg rounded hover:bg-white/10"
+                                  aria-label={`التفاعل ${reaction}`}
+                                >
+                                  {reaction}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className={`relative mt-1 ${mine ? 'self-end' : 'self-start'}`}>
+                      <button
+                        type="button"
+                        onClick={() => setOpenMessageMenu(openMessageMenu === `menu-${msg.id}` ? null : `menu-${msg.id}`)}
+                        className="min-h-9 rounded-lg px-2 text-xs"
+                        style={{ color: 'var(--text-muted)', border: '1px solid var(--dark-border)' }}
+                        aria-label="خيارات الرسالة"
+                        aria-expanded={openMessageMenu === `menu-${msg.id}`}
+                      >
+                        ⋯
+                      </button>
+                      {openMessageMenu === `menu-${msg.id}` && (
+                        <div className="absolute z-20 top-full mt-1 right-0 min-w-44 rounded-xl p-1 shadow-xl"
+                          style={{ background: 'var(--dark-card)', border: '1px solid var(--dark-border)' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMessage(msg, 'self')}
+                            className="block w-full text-right rounded-lg px-3 py-2 text-xs hover:bg-white/10"
+                          >
+                            حذف لديّ فقط
+                          </button>
+                          {(mine || user?.role === 'manager') && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMessage(msg, 'everyone')}
+                              className="block w-full text-right rounded-lg px-3 py-2 text-xs text-red-300 hover:bg-white/10"
+                            >
+                              حذف لدى الجميع
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -708,6 +888,39 @@ const ChatPage = () => {
           )}
         </div>
       </div>
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-8 bg-black/95"
+          role="dialog"
+          aria-modal="true"
+          aria-label="عرض الصورة"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxImage(null)}
+            className="absolute top-3 left-3 z-10 w-11 h-11 rounded-full bg-black/70 text-white text-2xl"
+            aria-label="إغلاق الصورة"
+          >
+            ×
+          </button>
+          <a
+            href={lightboxImage}
+            download={mediaFilename(lightboxImage, `dandana-image-${Date.now()}`, 'jpg')}
+            onClick={event => event.stopPropagation()}
+            className="absolute top-3 right-3 z-10 rounded-full px-4 py-3 bg-black/70 text-white text-sm"
+            aria-label="تنزيل الصورة إلى الجهاز"
+          >
+            ⬇️ تنزيل
+          </a>
+          <img
+            src={lightboxImage}
+            alt="صورة مرفقة بالحجم الكامل"
+            className="max-w-full max-h-full object-contain"
+            onClick={event => event.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };

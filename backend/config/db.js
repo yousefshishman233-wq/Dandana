@@ -12,6 +12,31 @@ let db;
 if (TURSO_URL && TURSO_TOKEN) {
   console.log('Connecting to Turso Cloud database at', TURSO_URL);
   const client = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
+  let tursoQueue = Promise.resolve();
+  let queueStartupQueries = true;
+
+  const execute = (sql, params, callback, mode) => {
+    const operation = queueStartupQueries
+      ? tursoQueue.then(() => client.execute({ sql, args: params || [] }))
+      : client.execute({ sql, args: params || [] });
+    if (queueStartupQueries) tursoQueue = operation.then(() => undefined, () => undefined);
+    operation.then(res => {
+      if (!callback) return;
+      if (mode === 'run') {
+        callback.call({
+          lastID: res.lastInsertRowid !== undefined ? Number(res.lastInsertRowid) : 0,
+          changes: res.rowsAffected || 0
+        }, null);
+      } else if (mode === 'get') {
+        callback(null, res.rows && res.rows.length ? toPlain(res.rows[0]) : null);
+      } else {
+        callback(null, (res.rows || []).map(row => toPlain(row)));
+      }
+    }).catch(err => {
+      console.error('Turso query error:', err.message, 'SQL:', sql);
+      if (callback) callback(err);
+    });
+  };
 
   function toPlain(row) {
     if (!row) return null;
@@ -22,45 +47,18 @@ if (TURSO_URL && TURSO_TOKEN) {
     isTurso: true,
     run(sql, params, callback) {
       if (typeof params === 'function') { callback = params; params = []; }
-      client.execute({ sql, args: params || [] })
-        .then(res => {
-          if (callback) {
-            callback.call({
-              lastID: res.lastInsertRowid !== undefined ? Number(res.lastInsertRowid) : 0,
-              changes: res.rowsAffected || 0
-            }, null);
-          }
-        })
-        .catch(err => {
-          console.error('Turso run error:', err.message, 'SQL:', sql);
-          if (callback) callback(err);
-        });
+      execute(sql, params, callback, 'run');
     },
     get(sql, params, callback) {
       if (typeof params === 'function') { callback = params; params = []; }
-      client.execute({ sql, args: params || [] })
-        .then(res => {
-          const row = res.rows && res.rows.length ? toPlain(res.rows[0]) : null;
-          if (callback) callback(null, row);
-        })
-        .catch(err => {
-          console.error('Turso get error:', err.message, 'SQL:', sql);
-          if (callback) callback(err);
-        });
+      execute(sql, params, callback, 'get');
     },
     all(sql, params, callback) {
       if (typeof params === 'function') { callback = params; params = []; }
-      client.execute({ sql, args: params || [] })
-        .then(res => {
-          const rows = (res.rows || []).map(r => toPlain(r));
-          if (callback) callback(null, rows);
-        })
-        .catch(err => {
-          console.error('Turso all error:', err.message, 'SQL:', sql);
-          if (callback) callback(err);
-        });
+      execute(sql, params, callback, 'all');
     },
     serialize(fn) { if (fn) fn(); },
+    finishInitializationQueue() { queueStartupQueries = false; },
     configure() {}
   };
 } else {
@@ -143,7 +141,62 @@ const INITIAL_INVENTORY_ITEMS = [
 ];
 
 // Initialize database tables
-const initializeDB = () => {
+let initializationPromise = null;
+
+const runAsync = (sql, params = []) => new Promise((resolve, reject) => {
+  db.run(sql, params, err => err ? reject(err) : resolve());
+});
+
+const allAsync = (sql, params = []) => new Promise((resolve, reject) => {
+  db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+});
+
+const ensureColumn = async (table, column, definition) => {
+  const columns = await allAsync(`PRAGMA table_info(${table})`);
+  if (columns.some(existing => existing.name === column)) return;
+
+  try {
+    await runAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (err) {
+    // Separate cold-start instances can both observe a missing column. Treat
+    // the losing ALTER as idempotent only if a fresh schema read confirms the
+    // other instance added it; otherwise preserve and report the DB error.
+    const currentColumns = await allAsync(`PRAGMA table_info(${table})`);
+    if (!currentColumns.some(existing => existing.name === column)) throw err;
+  }
+};
+
+const ensureChatSchema = async () => {
+  // Existing installations may already have one or more of these columns.
+  // Check first so real migration errors are surfaced instead of suppressing
+  // every ALTER TABLE failure as the legacy migrations do.
+  await ensureColumn('messages', 'media_url', 'TEXT');
+  await ensureColumn('messages', 'media_type', "TEXT DEFAULT 'text'");
+  await ensureColumn('messages', 'deleted_for_everyone_at', 'TEXT');
+  await runAsync(`CREATE TABLE IF NOT EXISTS message_reactions (
+    message_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    reaction   TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (message_id, user_id, reaction),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS message_hidden (
+    message_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (message_id, user_id),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`);
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON message_reactions(message_id)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_message_hidden_user ON message_hidden(user_id, message_id)');
+};
+
+const initializeDB = (callback) => {
+  if (!initializationPromise) {
+    initializationPromise = new Promise((resolve, reject) => {
   db.serialize(() => {
 
     // Branches table
@@ -358,8 +411,6 @@ const initializeDB = () => {
     db.run(`ALTER TABLE branches ADD COLUMN shift_start_time TEXT DEFAULT '09:00'`, () => {});
     db.run(`ALTER TABLE branches ADD COLUMN grace_period_minutes INTEGER DEFAULT 15`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN can_manage_leaves INTEGER DEFAULT 0`, () => {});
-    db.run(`ALTER TABLE messages ADD COLUMN media_url TEXT`, () => {});
-    db.run(`ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT 'text'`, () => {});
 
     // Carried Debts tracking across months
     db.run(`CREATE TABLE IF NOT EXISTS carried_debts (
@@ -389,8 +440,28 @@ const initializeDB = () => {
     db.run('CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)');
     db.run('CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)');
 
-    console.log('Database tables initialized successfully');
   });
+      // The sentinel runs after the synchronous schema setup has been queued
+      // (SQLite serialize queue; the Turso adapter preserves query order).
+      db.get('SELECT 1 AS initialization_barrier', [], err => {
+        if (err) return reject(err);
+        ensureChatSchema().then(() => {
+          if (typeof db.finishInitializationQueue === 'function') db.finishInitializationQueue();
+          console.log('Database tables and chat migrations initialized successfully');
+          resolve();
+        }, reject);
+      });
+    }).catch(err => {
+      console.error('Database initialization failed:', err);
+      initializationPromise = null;
+      throw err;
+    });
+  }
+
+  if (typeof callback === 'function') {
+    initializationPromise.then(() => callback(null), callback);
+  }
+  return initializationPromise;
 };
 
 module.exports = { db, initializeDB, BRANCHES };
