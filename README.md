@@ -28,5 +28,12 @@ npm run build
 npm start
 ```
 
+## Vercel deployment
+The frontend and backend are deployed as separate Vercel projects from this repository:
+- Set the frontend project's Root Directory to `frontend`.
+- Set the backend project's Root Directory to `backend`.
+- The frontend's Vite build outputs to `frontend/dist`; its Vercel configuration routes API and Socket.IO requests to the backend project.
+- The backend uses Turso for persistent cloud data. Do not rely on the serverless `/tmp` SQLite fallback for production data, since it is temporary.
+
 ## License
 MIT License
