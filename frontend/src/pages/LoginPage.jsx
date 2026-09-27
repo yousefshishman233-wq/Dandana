@@ -1,15 +1,6 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
-const FloatingIceCream = ({ style, emoji, delay }) => (
-  <div
-    className="absolute text-4xl select-none pointer-events-none opacity-20"
-    style={{ ...style, animation: `float ${6 + delay}s ease-in-out ${delay}s infinite` }}
-  >
-    {emoji}
-  </div>
-);
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
@@ -26,104 +17,80 @@ const LoginPage = () => {
       setError('يرجى إدخال اسم المستخدم وكلمة المرور');
       return;
     }
+
     setError('');
     setLoading(true);
-    const result = await login(username.trim(), password.trim());
-    if (result.success) {
-      navigate('/');
-    } else {
-      setError(result.message || 'اسم المستخدم أو كلمة المرور غير صحيحة');
+    try {
+      const result = await login(username.trim(), password.trim());
+      if (result.success) {
+        navigate('/');
+      } else {
+        setError(result.message || 'اسم المستخدم أو كلمة المرور غير صحيحة');
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-animated" dir="rtl">
-      {/* Floating ice cream background */}
-      <FloatingIceCream style={{ top: '8%', right: '10%' }} emoji="🍦" delay={0} />
-      <FloatingIceCream style={{ top: '15%', left: '8%' }} emoji="🍧" delay={1.5} />
-      <FloatingIceCream style={{ bottom: '20%', right: '5%' }} emoji="🍨" delay={3} />
-      <FloatingIceCream style={{ bottom: '10%', left: '12%' }} emoji="🧁" delay={0.8} />
-      <FloatingIceCream style={{ top: '50%', right: '3%' }} emoji="🍫" delay={2} />
-      <FloatingIceCream style={{ top: '40%', left: '3%' }} emoji="🍓" delay={4} />
+    <main className="min-h-screen flex items-center justify-center bg-slate-100 px-4 py-10" dir="rtl">
+      <div className="w-full max-w-md">
+        <h1 className="mb-6 text-center text-3xl font-bold text-slate-800">دندنه</h1>
 
-      {/* Glow orbs */}
-      <div className="absolute top-1/4 right-1/4 w-96 h-96 rounded-full opacity-10 blur-3xl"
-        style={{ background: 'radial-gradient(circle, #6C63FF, transparent)' }} />
-      <div className="absolute bottom-1/4 left-1/4 w-96 h-96 rounded-full opacity-10 blur-3xl"
-        style={{ background: 'radial-gradient(circle, #FF6B9D, transparent)' }} />
-
-      <div className="relative z-10 w-full max-w-md mx-4">
-        {/* Header */}
-        <div className="text-center mb-6 animate-fadeInUp">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-3 relative"
-            style={{ background: 'linear-gradient(135deg, #6C63FF, #FF6B9D)', boxShadow: '0 0 35px rgba(108,99,255,0.4)' }}>
-            <span className="text-3xl">🍦</span>
-            <div className="absolute inset-0 rounded-3xl animate-ping opacity-20"
-              style={{ background: 'linear-gradient(135deg, #6C63FF, #FF6B9D)' }} />
-          </div>
-          <h1 className="text-3xl font-black text-gradient-primary mb-1">دندنه</h1>
-          <p style={{ color: 'var(--text-secondary)' }} className="text-xs">
-            تسجيل الدخول إلى النظام
-          </p>
-        </div>
-
-        {/* Login Form Card */}
-        <div className="glass-card p-8 animate-scaleIn">
-          <h2 className="text-lg font-bold mb-5 text-center" style={{ color: 'var(--text-primary)' }}>
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <h2 className="mb-6 text-center text-xl font-semibold text-slate-800">
             تسجيل الدخول
           </h2>
 
           {error && (
-            <div className="mb-4 p-3 rounded-xl text-sm flex items-center gap-2 animate-scaleIn"
-              style={{ background: 'rgba(255,71,87,0.15)', border: '1px solid rgba(255,71,87,0.3)', color: '#FF6B9D' }}>
-              <span>⚠️</span> {error}
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            >
+              {error}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+              <label htmlFor="username-input" className="mb-2 block text-sm font-medium text-slate-700">
                 اسم المستخدم
               </label>
-              <div className="relative">
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-lg">👤</span>
-                <input
-                  id="username-input"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="input-dark pr-10"
-                  placeholder="أدخل اسم المستخدم"
-                  required
-                  autoFocus
-                />
-              </div>
+              <input
+                id="username-input"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                placeholder="أدخل اسم المستخدم"
+                autoComplete="username"
+                required
+                autoFocus
+              />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+              <label htmlFor="password-input" className="mb-2 block text-sm font-medium text-slate-700">
                 كلمة المرور
               </label>
-              <div className="relative">
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-lg">🔒</span>
+              <div className="flex rounded-lg border border-slate-300 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
                 <input
                   id="password-input"
                   type={showPass ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input-dark pr-10 pl-10"
+                  className="min-w-0 flex-1 rounded-r-lg px-3 py-2.5 text-slate-900 outline-none"
                   placeholder="أدخل كلمة المرور"
+                  autoComplete="current-password"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass(!showPass)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-sm"
-                  style={{ color: 'var(--text-muted)' }}
-                  aria-label="Toggle password visibility"
+                  className="px-3 text-sm text-slate-600 hover:text-slate-900"
+                  aria-label={showPass ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
                 >
-                  {showPass ? '🙈' : '👁️'}
+                  {showPass ? 'إخفاء' : 'إظهار'}
                 </button>
               </div>
             </div>
@@ -132,21 +99,14 @@ const LoginPage = () => {
               id="login-submit-btn"
               type="submit"
               disabled={loading}
-              className="btn-primary w-full text-center mt-3 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="spinner w-4 h-4 border-2"></span>
-                  جاري تسجيل الدخول...
-                </span>
-              ) : (
-                'تسجيل الدخول 🚀'
-              )}
+              {loading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
             </button>
           </form>
-        </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 };
 

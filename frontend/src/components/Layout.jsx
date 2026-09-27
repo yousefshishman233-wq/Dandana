@@ -163,22 +163,24 @@ const Layout = ({ children }) => {
           )}
           {expanded && (
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => {
-                  setPasswordError('');
-                  setPasswordSuccess('');
-                  setCurrentPassword('');
-                  setNewPassword('');
-                  setConfirmPassword('');
-                  setShowPasswordModal(true);
-                }}
-                title="تغيير كلمة المرور"
-                className="p-1.5 rounded-lg hover:scale-110 transition-transform text-sm"
-                style={{ background: 'rgba(255,179,71,0.2)', color: '#FFB347' }}
-                id="sidebar-change-pass-btn"
-              >
-                🔑
-              </button>
+              {user?.role === 'manager' && (
+                <button
+                  onClick={() => {
+                    setPasswordError('');
+                    setPasswordSuccess('');
+                    setCurrentPassword('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                    setShowPasswordModal(true);
+                  }}
+                  title="تغيير كلمة المرور"
+                  className="p-1.5 rounded-lg hover:scale-110 transition-transform text-sm"
+                  style={{ background: 'rgba(255,179,71,0.2)', color: '#FFB347' }}
+                  id="sidebar-change-pass-btn"
+                >
+                  🔑
+                </button>
+              )}
               <button
                 onClick={handleLogout}
                 title="تسجيل الخروج"
@@ -254,27 +256,29 @@ const Layout = ({ children }) => {
             <Clock />
 
             {/* Change Password button in Header */}
-            <button
-              onClick={() => {
-                setPasswordError('');
-                setPasswordSuccess('');
-                setCurrentPassword('');
-                setNewPassword('');
-                setConfirmPassword('');
-                setShowPasswordModal(true);
-              }}
-              title="تغيير كلمة المرور"
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:scale-105"
-              style={{
-                background: 'rgba(255,179,71,0.15)',
-                color: '#FFB347',
-                border: '1px solid rgba(255,179,71,0.3)',
-              }}
-              id="header-change-pass-btn"
-            >
-              <span>🔑</span>
-              <span className="hidden sm:inline">تغيير الباسورد</span>
-            </button>
+            {user?.role === 'manager' && (
+              <button
+                onClick={() => {
+                  setPasswordError('');
+                  setPasswordSuccess('');
+                  setCurrentPassword('');
+                  setNewPassword('');
+                  setConfirmPassword('');
+                  setShowPasswordModal(true);
+                }}
+                title="تغيير كلمة المرور"
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:scale-105"
+                style={{
+                  background: 'rgba(255,179,71,0.15)',
+                  color: '#FFB347',
+                  border: '1px solid rgba(255,179,71,0.3)',
+                }}
+                id="header-change-pass-btn"
+              >
+                <span>🔑</span>
+                <span className="hidden sm:inline">تغيير كلمة المرور</span>
+              </button>
+            )}
 
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: 'rgba(108,99,255,0.08)', border: '1px solid var(--dark-border)' }}>
@@ -294,7 +298,7 @@ const Layout = ({ children }) => {
       </div>
 
       {/* ── Change Password Modal ── */}
-      {showPasswordModal && (
+      {user?.role === 'manager' && showPasswordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }} dir="rtl">
           <div className="glass-card-static p-6 w-full max-w-md animate-scaleIn">
@@ -335,6 +339,7 @@ const Layout = ({ children }) => {
                   onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder="أدخل كلمة المرور الحالية"
                   className="input-dark w-full"
+                  required
                   style={{ direction: 'ltr' }}
                 />
               </div>

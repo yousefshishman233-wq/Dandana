@@ -824,11 +824,14 @@ exports.markNotificationRead = (req, res) => {
   });
 };
 
-// @route   PUT /api/auth/change-password
+// @route   POST /api/auth/change-password
 // @desc    Change password for authenticated user (e.g. manager)
 // @access  Private
 exports.changePassword = async (req, res) => {
   const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !currentPassword.trim()) {
+    return res.status(400).json({ success: false, message: 'يرجى إدخال كلمة المرور الحالية' });
+  }
   if (!newPassword || !newPassword.trim()) {
     return res.status(400).json({ success: false, message: 'يرجى إدخال كلمة المرور الجديدة' });
   }
@@ -841,11 +844,14 @@ exports.changePassword = async (req, res) => {
     if (err) return res.status(500).json({ success: false, message: 'Database error' });
     if (!user) return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
 
-    if (currentPassword && currentPassword.trim()) {
+    try {
       const isMatch = await bcrypt.compare(currentPassword.trim(), user.password);
       if (!isMatch) {
         return res.status(400).json({ success: false, message: 'كلمة المرور الحالية غير صحيحة' });
       }
+    } catch (compareErr) {
+      console.error('Password verification error:', compareErr);
+      return res.status(500).json({ success: false, message: 'فشل التحقق من كلمة المرور الحالية' });
     }
 
     try {
